@@ -1,4 +1,5 @@
 import Foundation
+
 #if os(macOS)
     // Needed on macOS, otherwise build won't find e.g. UNUserNotificationCenterDelegate. Optional on iOS.
     import UserNotifications
@@ -51,13 +52,18 @@ class PushHostHandlers: NSObject, PUPushHostApi {
             }
         #endif
 
-        UNUserNotificationCenter.current().requestAuthorization(options: options) {
-            granted, error in
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: options
+        ) {
+            granted,
+            error in
             guard error == nil else {
                 completion(
                     nil,
                     FlutterError(
-                        code: "requestPermission", message: error.debugDescription, details: error
+                        code: "requestPermission",
+                        message: error.debugDescription,
+                        details: error
                     )
                 )
                 return
@@ -76,21 +82,24 @@ class PushHostHandlers: NSObject, PUPushHostApi {
 
     private let delegate: UNUserNotificationCenterDelegate
     private let pushFlutterApi: PUPushFlutterApi
-    public static var notificationTapWhichLaunchedAppUserInfo: [AnyHashable: Any]? = nil
+    public static var notificationTapWhichLaunchedAppUserInfo:
+        [AnyHashable: Any]? = nil
 
     let deviceTokenReadyDispatchGroup = DispatchGroup()
 
     // TODO: double check that the delegate is still the same later, in case the user had set it? and log error.
     init(
-        binaryMessenger: FlutterBinaryMessenger, originalDelegate: UNUserNotificationCenterDelegate?
+        binaryMessenger: FlutterBinaryMessenger,
+        originalDelegate: UNUserNotificationCenterDelegate?
     ) {
         pushFlutterApi = PUPushFlutterApi(binaryMessenger: binaryMessenger)
         delegate = UserNotificationCenterDelegateHandlers(
-            with: originalDelegate, pushFlutterApi: pushFlutterApi
+            with: originalDelegate,
+            pushFlutterApi: pushFlutterApi
         )
         UNUserNotificationCenter.current().delegate = delegate
         super.init()
-        enterDeviceTokenReadyDispatchGroup() // DeviceToken is not yet ready
+        enterDeviceTokenReadyDispatchGroup()  // DeviceToken is not yet ready
         SetUpPUPushHostApi(binaryMessenger, self)
     }
 
@@ -107,18 +116,34 @@ class PushHostHandlers: NSObject, PUPushHostApi {
     func getNotificationTapWhichLaunchedTerminatedAppWithError(
         _: AutoreleasingUnsafeMutablePointer<FlutterError?>
     ) -> [String: Any]? {
-        let userInfo = PushHostHandlers.notificationTapWhichLaunchedAppUserInfo
-        return userInfo as? [String: Any]
+        guard
+            let userInfo = PushHostHandlers
+                .notificationTapWhichLaunchedAppUserInfo
+        else {
+            return nil
+        }
+
+        var result: [String: Any] = [:]
+        for (key, value) in userInfo {
+            if let stringKey = key as? String {
+                result[stringKey] = value
+            }
+        }
+
+        return result.empty ? nil : result
     }
 
     func application(
-        _: DarwinApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+        _: DarwinApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         onNewToken(deviceToken)
         leaveDeviceTokenReadyDispatchGroup()
     }
 
-    func getTokenWithCompletion(_ completion: @escaping (String?, FlutterError?) -> Void) {
+    func getTokenWithCompletion(
+        _ completion: @escaping (String?, FlutterError?) -> Void
+    ) {
         if let deviceToken = deviceToken {
             completion(convertTokenToString(deviceToken: deviceToken), nil)
         } else {
@@ -126,11 +151,19 @@ class PushHostHandlers: NSObject, PUPushHostApi {
                 "DeviceToken is not available (it is \(String(describing: deviceToken))). "
                     + "Your application might not be configured for push notifications, or there is a "
                     + "delay in getting the device token because of network issues. "
-                    + "Background thread is now waiting for it to be set.")
+                    + "Background thread is now waiting for it to be set."
+            )
             DispatchQueue.global(qos: .userInitiated).async { [self] in
-                deviceTokenReadyDispatchGroup.notify(queue: DispatchQueue.global(qos: .background)) { [self] in
+                deviceTokenReadyDispatchGroup.notify(
+                    queue: DispatchQueue.global(qos: .background)
+                ) { [self] in
                     DispatchQueue.main.async {
-                        completion(self.convertTokenToString(deviceToken: self.deviceToken!), nil)
+                        completion(
+                            self.convertTokenToString(
+                                deviceToken: self.deviceToken!
+                            ),
+                            nil
+                        )
                     }
                 }
                 self.deviceTokenReadyDispatchGroup.wait()
@@ -160,12 +193,15 @@ class PushHostHandlers: NSObject, PUPushHostApi {
         _: AutoreleasingUnsafeMutablePointer<FlutterError?>
     ) {}
 
-    func areNotificationsEnabled(completion: @escaping (NSNumber?, FlutterError?) -> Void) {
+    func areNotificationsEnabled(
+        completion: @escaping (NSNumber?, FlutterError?) -> Void
+    ) {
         completion(
             nil,
             FlutterError(
                 code: "areNotificationsEnabled",
-                message: "Android only API. Do not call this on iOS.", details: nil
+                message: "Android only API. Do not call this on iOS.",
+                details: nil
             )
         )
     }
@@ -174,14 +210,17 @@ class PushHostHandlers: NSObject, PUPushHostApi {
         func didReceiveRemoteNotification(
             _ application: UIApplication,
             didReceiveRemoteNotification userInfo: [AnyHashable: Any],
-            fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+            fetchCompletionHandler completionHandler:
+                @escaping (UIBackgroundFetchResult) -> Void
         ) -> Bool {
             let message = PURemoteMessage.from(userInfo: userInfo)
-            if application.applicationState == .background || application.applicationState == .inactive { // App in background or terminated
+            if application.applicationState == .background
+                || application.applicationState == .inactive
+            {  // App in background or terminated
                 pushFlutterApi.onBackgroundMessageMessage(message) { _ in
                     completionHandler(.newData)
                 }
-            } else { // App in foreground
+            } else {  // App in foreground
                 let aps = userInfo["aps"] as? [String: Any]
                 let isAlertMessage = aps?["alert"] != nil
                 // if "alert" APNs message, it is already sent in UserNotificationCenterDelegateHandlers userNotificationCenter_willPresent
@@ -197,7 +236,7 @@ class PushHostHandlers: NSObject, PUPushHostApi {
             return true
         }
 
-    #elseif(os(macOS))
+    #elseif (os(macOS))
         // https://developer.apple.com/documentation/appkit/nsapplicationdelegate/application(_:didreceiveremotenotification:)
         func didReceiveRemoteNotification(
             _ application: NSApplication,
@@ -206,9 +245,9 @@ class PushHostHandlers: NSObject, PUPushHostApi {
             // No push notification delivered when app is terminated.
 
             let message = PURemoteMessage.from(userInfo: userInfo)
-            if application.isActive == false { // App in background
+            if application.isActive == false {  // App in background
                 pushFlutterApi.onBackgroundMessageMessage(message) { _ in }
-            } else { // App in foreground
+            } else {  // App in foreground
                 // Might need to check "alert" key and skip sending if message is only send if not alert (alert already sent)
 
                 let aps = userInfo["aps"] as? [String: Any]
@@ -244,10 +283,13 @@ class PushHostHandlers: NSObject, PUPushHostApi {
     }
 
     public func application(
-        _: DarwinApplication, didFailToRegisterForRemoteNotificationsWithError error: Error
+        _: DarwinApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         // Log an error.
-        print("Failed to register device for remote notifications. Error: \(error)")
+        print(
+            "Failed to register device for remote notifications. Error: \(error)"
+        )
     }
 
     private func enterDeviceTokenReadyDispatchGroup() {
