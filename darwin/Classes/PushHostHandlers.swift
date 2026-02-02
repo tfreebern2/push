@@ -130,7 +130,7 @@ class PushHostHandlers: NSObject, PUPushHostApi {
             }
         }
 
-        return result.empty ? nil : result
+        return result.isEmpty ? nil : result
     }
 
     func application(
